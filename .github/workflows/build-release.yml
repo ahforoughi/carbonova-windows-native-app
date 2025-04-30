@@ -1,8 +1,10 @@
-name: Build and Release
+name: Build Executable
 
 on:
-  release:
-    types: [created]
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   build:
@@ -26,9 +28,8 @@ jobs:
       - name: Build executable
         run: pyinstaller --onefile --windowed excel_monitor.py
 
-      - name: Upload executable to release
-        uses: softprops/action-gh-release@v1
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
         with:
-          files: dist/excel_monitor.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: excel-monitor-exe
+          path: dist/excel_monitor.exe
