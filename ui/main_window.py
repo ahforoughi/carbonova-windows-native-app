@@ -3,7 +3,9 @@ from datetime import datetime
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QLabel, QLineEdit, QTextEdit, 
                              QFileDialog, QTabWidget, QGroupBox, QFormLayout, 
-                             QMessageBox)
+                             QMessageBox, QTableWidget, QTableWidgetItem, QSplitter,
+                             QHeaderView)
+from PyQt5.QtCore import Qt
 from settings.settings_manager import SettingsManager
 from monitoring.file_monitor import FileMonitor
 
@@ -11,7 +13,10 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Excel File Monitor")
-        self.setMinimumSize(700, 500)
+        
+        # Set a larger initial window size
+        self.setMinimumSize(1000, 700)
+        self.resize(1200, 800)
         
         self.settings_manager = SettingsManager()
         self.monitor_thread = None
@@ -59,6 +64,9 @@ class MainWindow(QMainWindow):
         
         monitor_layout.addWidget(status_group)
         
+        # Create a splitter for log and data view
+        splitter = QSplitter(Qt.Vertical)
+        
         # Log area
         log_group = QGroupBox("Activity Log")
         log_layout = QVBoxLayout(log_group)
@@ -67,7 +75,26 @@ class MainWindow(QMainWindow):
         self.log_text.setReadOnly(True)
         log_layout.addWidget(self.log_text)
         
-        monitor_layout.addWidget(log_group)
+        splitter.addWidget(log_group)
+        
+        # Data view area - create as a class member
+        self.data_group = QGroupBox("New Rows Added (0)")
+        data_layout = QVBoxLayout(self.data_group)
+        
+        self.data_table = QTableWidget()
+        self.data_table.setAlternatingRowColors(True)
+        data_layout.addWidget(self.data_table)
+        
+        # Initialize with empty table
+        self.data_table.setRowCount(0)
+        self.data_table.setColumnCount(0)
+        
+        splitter.addWidget(self.data_group)
+        
+        # Set initial sizes for the splitter
+        splitter.setSizes([200, 400])
+        
+        monitor_layout.addWidget(splitter)
         
         # Settings tab
         settings_tab = QWidget()
@@ -159,6 +186,40 @@ class MainWindow(QMainWindow):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         self.log_text.append(f"[{timestamp}] {message}")
         
+    def display_new_data(self, dataframe):
+        if dataframe is None or len(dataframe) == 0:
+            self.log_message("No new data to display")
+            return
+        
+        # Debug message to confirm data is being received
+        self.log_message(f"Displaying {len(dataframe)} new rows in table")
+        
+        # Clear the table
+        self.data_table.clear()
+        
+        # Set the number of rows and columns
+        row_count = len(dataframe)
+        col_count = len(dataframe.columns)
+        
+        self.data_table.setRowCount(row_count)
+        self.data_table.setColumnCount(col_count)
+        
+        # Set the headers
+        self.data_table.setHorizontalHeaderLabels(dataframe.columns)
+        
+        # Populate the table with data
+        for row in range(row_count):
+            for col in range(col_count):
+                value = str(dataframe.iloc[row, col])
+                item = QTableWidgetItem(value)
+                self.data_table.setItem(row, col, item)
+        
+        # Resize columns to content
+        self.data_table.resizeColumnsToContents()
+        
+        # Update the group box title to show it's only new rows
+        self.data_group.setTitle(f"New Rows Added ({row_count})")
+        
     def start_monitoring(self):
         # Check if already running
         if self.monitor_thread and self.monitor_thread.isRunning():
@@ -177,9 +238,15 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Invalid Settings", "Please enter a valid API URL.")
             return
             
+        # Reset the data view
+        self.data_table.setRowCount(0)
+        self.data_table.setColumnCount(0)
+        self.data_group.setTitle("New Rows Added (0)")
+            
         # Start monitoring thread
         self.monitor_thread = FileMonitor(self.file_to_monitor, api_url, api_key)
         self.monitor_thread.log_signal.connect(self.log_message)
+        self.monitor_thread.new_data_signal.connect(self.display_new_data)
         self.monitor_thread.start()
         
         # Update UI

@@ -7,6 +7,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 class FileMonitor(QThread):
     log_signal = pyqtSignal(str)
+    new_data_signal = pyqtSignal(pd.DataFrame)  # Signal for showing data
     
     def __init__(self, file_to_monitor, api_url, api_key):
         super().__init__()
@@ -20,13 +21,13 @@ class FileMonitor(QThread):
     def run(self):
         self.log_signal.emit(f"Started monitoring file: {os.path.basename(self.file_to_monitor)}")
         
-        # Initial scan of file
+        # Initial scan of file to establish the baseline, but don't send any data
         self.process_file(initial_scan=True)
         
         try:
             while self.running:
                 if os.path.exists(self.file_to_monitor):
-                    self.process_file()
+                    self.process_file(initial_scan=False)
                 else:
                     self.log_signal.emit(f"Warning: File not found: {self.file_to_monitor}")
                 
@@ -45,7 +46,7 @@ class FileMonitor(QThread):
             # Check file modification time
             mod_time = os.path.getmtime(self.file_to_monitor)
             
-            # Skip if we've already processed this file with this mod time
+            # Skip if we've already processed this file with this mod time and it's not the initial scan
             if mod_time <= self.file_state.get('mod_time', 0) and not initial_scan:
                 return  # File hasn't changed
             
@@ -85,25 +86,35 @@ class FileMonitor(QThread):
             
             # Get the current row count
             row_count = len(df)
-            
-            # If we've seen this file before
             previous_count = self.file_state.get('row_count', 0)
             
-            # If new rows were added
-            if row_count > previous_count:
-                new_rows = df.iloc[previous_count:row_count]
-                self.log_signal.emit(f"Found {len(new_rows)} new rows")
-                
-                # Send new rows to API
-                if not initial_scan:
-                    self.send_to_api(new_rows)
-            
-            # Update the file state
-            self.file_state['row_count'] = row_count
-            self.file_state['mod_time'] = mod_time
-            
+            # If initial scan, just store the current row count and don't emit anything
             if initial_scan:
+                self.file_state['row_count'] = row_count
+                self.file_state['mod_time'] = mod_time
                 self.log_signal.emit(f"Initially indexed file with {row_count} rows")
+                return  # Exit without emitting data
+                
+            # If new rows were added and it's not an initial scan
+            if row_count > previous_count:
+                # Extract only the new rows
+                new_rows = df.iloc[previous_count:row_count]
+                new_row_count = len(new_rows)
+                
+                if new_row_count > 0:
+                    self.log_signal.emit(f"Found {new_row_count} new rows")
+                    
+                    # Send signal with only new rows
+                    self.new_data_signal.emit(new_rows)
+                    
+                    # Send new rows to API
+                    self.send_to_api(new_rows)
+                    
+                    # Update the file state after processing
+                    self.file_state['row_count'] = row_count
+            
+            # Always update the modification time
+            self.file_state['mod_time'] = mod_time
                 
         except Exception as e:
             self.log_signal.emit(f"Error processing file: {str(e)}")
