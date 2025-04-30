@@ -1,0 +1,10 @@
+setuptools
+wheel
+PyQt6
+pandas
+openpyxl
+xlrd
+requests
+pyinstaller
+numpy
+watchdog 
